@@ -1,12 +1,15 @@
 package com.ccat.candy;
 
+import java.lang.reflect.Array;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 public enum Candy {
     GUMMY_WORMS("some Gummy Worms","Gummy Worms", "🪱"),
     CHOCOLATE_BAR("a Chocolate Bar","Chocolate Bar", "🍫"),
     LOLLIPOP("a Lollipop", "Lollipop","🍭"),
-    CANDY_CORN("a handful of Candy Corn", "Candy Corn", "🌽"),
+    CANDY_CORN("a very generous handful of Candy Corn", "Candy Corn", "🌽"),
     JELLY_BEANS("some Jelly Beans","Jelly Beans", "🍬"),
     CARAMEL_APPLE("a Caramel Apple", "Caramel Apple","🍎"),
     GUMMY_BEAR("a single Gummy Bear", "Gummy Bears","🐻"),
@@ -39,5 +42,12 @@ public enum Candy {
         Candy[] candies = values();
         return candies[ThreadLocalRandom.current()
                 .nextInt(candies.length)];
+    }
+
+    public static Candy randomMulti() {
+        List<Candy> applicableCandies = List.of(GUMMY_WORMS, CANDY_CORN, JELLY_BEANS, SOUR_CANDY);
+
+        return applicableCandies.get(ThreadLocalRandom.current()
+                .nextInt(applicableCandies.size()));
     }
 }

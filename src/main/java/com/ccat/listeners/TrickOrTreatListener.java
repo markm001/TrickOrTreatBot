@@ -52,7 +52,9 @@ public class TrickOrTreatListener extends ListenerAdapter {
                     return;
                 }
 
-                String promptMessage = Math.random() < 0.5 ? "Give them candy or suffer the consequences! \uD83D\uDC7B" : "Are you sharing some candy? 🍬";
+                String promptMessage = Math.random() < 0.5
+                        ? "Give them candy or suffer the consequences! \uD83D\uDC7B"
+                        : "Are you sharing some candy? 🍬";
 
                 EmbedBuilder embed = new EmbedBuilder()
                         .setTitle("🎃 Trick or Treat!")
@@ -179,9 +181,63 @@ public class TrickOrTreatListener extends ListenerAdapter {
             return;
         }
 
-        Candy candy = Candy.random();
-
         try {
+            // regular || nothing (coal) || steal || multi
+            double roll = Math.random();
+
+            if (roll < 0.80) {
+                giveCandy(giverId, recipientId, event);
+            } else if (roll < 0.90) {
+                giveCoal(giverId, recipientId, event);
+            } else {
+                takeCandy(giverId, recipientId, event);
+            }
+
+        } catch (SQLException e) {
+            event.reply(
+                    "🎃 Oh no! <@"
+                            + recipientId
+                            + "> 's bucket is already full. Please try again."
+            ).setEphemeral(true).queue();
+
+            e.printStackTrace();
+        }
+    }
+
+    private void giveCandy(String giverId, String recipientId, ButtonInteractionEvent event) throws SQLException {
+        boolean multi = Math.random() < 0.2;
+
+        if (multi) {
+            Candy candy = Candy.randomMulti();
+
+            boolean added = database.tryAddTwoGifts(
+                    giverId,
+                    recipientId,
+                    candy,
+                    event.getChannel().getId(),
+                    event.getMessageId()
+            );
+
+            if (!added) {
+                event.reply(
+                        "🍬 You've already given candy to this trick-or-treater!"
+                ).setEphemeral(true).queue();
+
+                return;
+            }
+
+            event.reply(
+                    "\uD83E\uDDD9 <@"
+                            + giverId + "> has been generous and offered <@"
+                            + recipientId + "> "
+                            + candy.getDisplayMessage()
+                            + "! "
+                            + candy.getEmoji()
+            ).queue();
+
+        } else {
+            Candy candy = Candy.random();
+
             boolean added = database.tryAddGift(
                     giverId,
                     recipientId,
@@ -207,16 +263,35 @@ public class TrickOrTreatListener extends ListenerAdapter {
                             + candy.getDisplayMessage()
                             + "! " + candy.getEmoji()
             ).queue();
+        }
+    }
 
-        } catch (SQLException e) {
+    private void takeCandy(String giverId, String recipientId, ButtonInteractionEvent event) throws SQLException {
+        boolean removed = database.removeRandomCandy(recipientId);
+
+        if (!removed) {
             event.reply(
-                    "🎃 Oh no! <@"
-                            + recipientId
-                            + "> 's bucket is already full. Please try again."
+                    "🍬 You attempted to steal <@" + recipientId + "> 's candy, but they evaded your vicious grasp."
             ).setEphemeral(true).queue();
 
-            e.printStackTrace();
+            return;
         }
+
+        event.reply(
+                "\uD83D\uDD77\uFE0F Oh no! <@"
+                        + giverId
+                        + "> sneakily reached into <@"
+                        + recipientId
+                        + "> bucket and stole their candy!"
+        ).queue();
+    }
+    private void giveCoal(String giverId, String recipientId, ButtonInteractionEvent event) {
+        event.reply(
+                "\uD83E\uDDDF With a malicious grin <@"
+                        + giverId + "> hands <@"
+                        + recipientId + "> a wrapped piece of candy. Upon closer inspection it's a rock in a wrapper. \uD83E\uDEA8"
+        ).queue();
+
     }
 
     private void sendLeaderboard(MessageReceivedEvent event) {

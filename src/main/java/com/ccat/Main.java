@@ -12,9 +12,9 @@ import java.sql.SQLException;
 
 public class Main {
     private static final String BOT_TOKEN = System.getenv("DISCORD_TOKEN");
+    private static final String BOT_VERSION = "1.0.10";
 
     public static void main(String[] args) {
-
         if (BOT_TOKEN == null || BOT_TOKEN.isBlank()) {
             throw new IllegalStateException(
                     "Set the DISCORD_TOKEN environment variable."
@@ -48,7 +48,7 @@ public class Main {
 
         api.addEventListener(new TestListener());
 
-        System.out.print("✅ Initialization finished!");
+        System.out.print("✅ Initialization finished! Running version: " + BOT_VERSION);
 
 
         // ─── SHUTDOWN HOOK ──────────────────────────────────────

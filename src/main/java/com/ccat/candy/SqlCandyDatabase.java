@@ -46,6 +46,14 @@ public class SqlCandyDatabase implements AutoCloseable {
                     last_request_ms INTEGER NOT NULL
                 )
                 """);
+
+            statement.execute("""
+                CREATE TABLE IF NOT EXISTS gift_claims (
+                    message_id TEXT NOT NULL,
+                    giver_id TEXT NOT NULL,
+                    PRIMARY KEY (message_id, giver_id)
+                )
+                """);
         }
     }
 
@@ -118,24 +126,129 @@ public class SqlCandyDatabase implements AutoCloseable {
             String channelId,
             String messageId) throws SQLException {
 
-        String sql = """
-            INSERT INTO gifts (
-                giver_id, recipient_id, candy,
-                channel_id, message_id, timestamp
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(message_id, giver_id) DO NOTHING
-            """;
+        String claimSql = """
+        INSERT INTO gift_claims (message_id, giver_id)
+        VALUES (?, ?)
+        ON CONFLICT(message_id, giver_id) DO NOTHING
+        """;
 
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, giverId);
-            ps.setString(2, recipientId);
-            ps.setString(3, candy.name());
-            ps.setString(4, channelId);
-            ps.setString(5, messageId);
-            ps.setString(6, Instant.now().toString());
+        String giftSql = """
+        INSERT INTO gifts (
+            giver_id, recipient_id, candy,
+            channel_id, message_id, timestamp
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """;
 
-            return ps.executeUpdate() == 1;
+        try {
+            connection.setAutoCommit(false);
+
+            // Claim this interaction first.
+            try (PreparedStatement ps =
+                         connection.prepareStatement(claimSql)) {
+
+                ps.setString(1, messageId);
+                ps.setString(2, giverId);
+
+                if (ps.executeUpdate() != 1) {
+                    connection.rollback();
+                    return false;
+                }
+            }
+
+            // Record the candy.
+            try (PreparedStatement ps =
+                         connection.prepareStatement(giftSql)) {
+
+                ps.setString(1, giverId);
+                ps.setString(2, recipientId);
+                ps.setString(3, candy.name());
+                ps.setString(4, channelId);
+                ps.setString(5, messageId);
+                ps.setString(6, Instant.now().toString());
+
+                ps.executeUpdate();
+            }
+
+            connection.commit();
+            return true;
+
+        } catch (SQLException e) {
+            connection.rollback();
+            throw e;
+
+        } finally {
+            connection.setAutoCommit(true);
+        }
+    }
+
+    public synchronized boolean tryAddTwoGifts(
+            String giverId,
+            String recipientId,
+            Candy candy,
+            String channelId,
+            String messageId) throws SQLException {
+
+        String claimSql = """
+        INSERT INTO gift_claims (message_id, giver_id)
+        VALUES (?, ?)
+        ON CONFLICT(message_id, giver_id) DO NOTHING
+        """;
+
+        String giftSql = """
+        INSERT INTO gifts (
+            giver_id, recipient_id, candy,
+            channel_id, message_id, timestamp
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """;
+
+        String timestamp = Instant.now().toString();
+
+        try {
+            connection.setAutoCommit(false);
+
+            // Claim this interaction first.
+            try (PreparedStatement ps =
+                         connection.prepareStatement(claimSql)) {
+
+                ps.setString(1, messageId);
+                ps.setString(2, giverId);
+
+                if (ps.executeUpdate() != 1) {
+                    connection.rollback();
+                    return false;
+                }
+            }
+
+            // Insert both candies in the same transaction.
+            try (PreparedStatement ps =
+                         connection.prepareStatement(giftSql)) {
+
+                for (int i = 0; i < 2; i++) {
+                    ps.setString(1, giverId);
+                    ps.setString(2, recipientId);
+                    ps.setString(3, candy.name());
+                    ps.setString(4, channelId);
+
+                    // Preserve your existing unique message IDs.
+                    ps.setString(5, messageId + "_" + i);
+
+                    ps.setString(6, timestamp);
+
+                    ps.executeUpdate();
+                }
+            }
+
+            connection.commit();
+            return true;
+
+        } catch (SQLException e) {
+            connection.rollback();
+            throw e;
+
+        } finally {
+            connection.setAutoCommit(true);
         }
     }
 
@@ -193,6 +306,27 @@ public class SqlCandyDatabase implements AutoCloseable {
         }
 
         return inventory;
+    }
+
+    public synchronized boolean removeRandomCandy(
+            String recipientId) throws SQLException {
+
+        String sql = """
+        DELETE FROM gifts
+        WHERE id = (
+            SELECT id
+            FROM gifts
+            WHERE recipient_id = ?
+            ORDER BY RANDOM()
+            LIMIT 1
+        )
+        """;
+
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, recipientId);
+
+            return ps.executeUpdate() == 1;
+        }
     }
 
     @Override
