@@ -12,7 +12,7 @@ import java.sql.SQLException;
 
 public class Main {
     private static final String BOT_TOKEN = System.getenv("DISCORD_TOKEN");
-    private static final String BOT_VERSION = "1.0.10";
+    private static final String BOT_VERSION = "1.0.20";
 
     public static void main(String[] args) {
         if (BOT_TOKEN == null || BOT_TOKEN.isBlank()) {

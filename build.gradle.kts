@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.ccat"
-version = "1.1-SNAPSHOT"
+version = "1.2-SNAPSHOT"
 
 val jdaVersion = "6.7.0"
 val gsonVersion = "2.15.0"

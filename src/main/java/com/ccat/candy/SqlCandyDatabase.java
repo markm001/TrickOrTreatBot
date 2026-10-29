@@ -329,6 +329,93 @@ public class SqlCandyDatabase implements AutoCloseable {
         }
     }
 
+    public synchronized StealResult tryStealCandy(
+            String giverId,
+            String recipientId,
+            boolean payPrice) throws SQLException {
+
+        // A failed attempt without a price has no database changes.
+        if (!payPrice) {
+            return StealResult.FAILED_FREE;
+        }
+
+        connection.setAutoCommit(false);
+
+        try {
+            // Check whether the giver has enough candy to pay the price.
+            int candyCount;
+
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM gifts WHERE recipient_id = ?")) {
+
+                statement.setString(1, giverId);
+
+                try (ResultSet result = statement.executeQuery()) {
+                    result.next();
+                    candyCount = result.getInt(1);
+                }
+            }
+
+            if (candyCount < 3) {
+                connection.rollback();
+                return StealResult.INSUFFICIENT_CANDY;
+            }
+
+            // Find a random candy belonging to the target.
+            int targetCandyId;
+
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT id FROM gifts WHERE recipient_id = ? ORDER BY RANDOM() LIMIT 1")) {
+
+                statement.setString(1, recipientId);
+
+                try (ResultSet result = statement.executeQuery()) {
+                    if (!result.next()) {
+                        connection.rollback();
+                        return StealResult.TARGET_HAS_NO_CANDY;
+                    }
+
+                    targetCandyId = result.getInt("id");
+                }
+            }
+
+            // Remove three random candies from the giver.
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "DELETE FROM gifts WHERE id IN (" +
+                            "SELECT id FROM gifts WHERE recipient_id = ? ORDER BY RANDOM() LIMIT 3)")) {
+
+                statement.setString(1, giverId);
+
+                if (statement.executeUpdate() != 3) {
+                    connection.rollback();
+                    return StealResult.INSUFFICIENT_CANDY;
+                }
+            }
+
+            // Remove one candy from the target.
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "DELETE FROM gifts WHERE id = ?")) {
+
+                statement.setInt(1, targetCandyId);
+
+                if (statement.executeUpdate() != 1) {
+                    connection.rollback();
+                    return StealResult.TARGET_HAS_NO_CANDY;
+                }
+            }
+
+            connection.commit();
+            return StealResult.SUCCESS;
+
+        } catch (SQLException exception) {
+            connection.rollback();
+            throw exception;
+
+        } finally {
+            connection.setAutoCommit(true);
+        }
+    }
+
     @Override
     public synchronized void close() throws SQLException {
         connection.close();

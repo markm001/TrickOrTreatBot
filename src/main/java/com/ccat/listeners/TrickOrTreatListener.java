@@ -2,9 +2,12 @@ package com.ccat.listeners;
 
 import com.ccat.candy.Candy;
 import com.ccat.candy.SqlCandyDatabase;
+import com.ccat.candy.StealResult;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
+import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -15,7 +18,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.ccat.candy.StealResult.*;
+
 public class TrickOrTreatListener extends ListenerAdapter {
+
+    private static final List<String> COAL_MESSAGES = List.of(
+            "proudly hands <@RECIPIENT> a Danish Butter Cookie jar. After opening it, they discover grandmas sewing kit. 🧵",
+            "hands a wrapped piece of candy. Upon closer inspection, it's a rock in a wrapper. 🪨",
+            "hands a button to <@RECIPIENT>. It tastes just like a button. 🧵",
+            "hands <@RECIPIENT> a piece of candy from last Halloween. It's somehow both stale and suspiciously moist. 🎃",
+            "reaches into the bag and pulls out a dusty candy corn from 2004. <@RECIPIENT> watches in sheer horror. 🌽",
+            "hands <@RECIPIENT> a chocolate bar that expired five years ago. 🍫",
+            "proudly presents <@RECIPIENT> with a single raisin. 🍇",
+            "hands <@RECIPIENT> a wrapped candy. It rattles when shaken. Nobody dares investigate. 👻",
+            "gives <@RECIPIENT> a suspiciously warm candy. It is best not to ask questions. 🤢",
+            "reaches into the candy bag and pulls out... absolutely nothing. The disappointment is immeasurable and their day is ruined. 💀",
+            "generously offers <@RECIPIENT> a bag of Marshmallows. Upon closer inspection, they are rock hard. 🥲",
+            "gives <@RECIPIENT> a handful of candy wrappers. Who ate all that candy? \uD83E\uDD87"
+    );
 
     private final SqlCandyDatabase database;
 
@@ -92,14 +112,142 @@ public class TrickOrTreatListener extends ListenerAdapter {
             return;
         }
 
-        // ─── CANDY COUNT ──────────────────────────────────────
-        if (message.equalsIgnoreCase("!candy")) {
-            event.getChannel().sendMessage(
-                    "🍬 Usage: !candy @user"
-            ).queue();
+
+        // ─── STEAL CANDY ─────────────────────────────────────
+        MessageChannelUnion channel = event.getChannel();
+
+        if (message.startsWith("!steal ")) {
+            if (event.getMessage().getMentions().getUsers().isEmpty()) {
+                channel.sendMessage("Usage: `!steal @user`").queue();
+                return;
+            }
+
+            User giver = event.getAuthor();
+            User recipient = event.getMessage().getMentions().getUsers().get(0);
+
+            if (giver.getId().equals(recipient.getId())) {
+                channel.sendMessage("🪞 You can't steal candy from yourself!").queue();
+                return;
+            }
+
+            double roll = Math.random();
+
+            boolean success;
+            boolean payPrice;
+
+            if (roll < 0.60) {
+                success = true;
+                payPrice = true;
+            } else if (roll < 0.70) {
+                success = true;
+                payPrice = false;
+            } else if (roll < 0.90) {
+                success = false;
+                payPrice = true;
+            } else {
+                success = false;
+                payPrice = false;
+            }
+
+            try {
+                if (!success) {
+                    if (payPrice) {
+                        StealResult result = database.tryStealCandy(giver.getId(), recipient.getId(), true);
+
+                        if (result == StealResult.INSUFFICIENT_CANDY) {
+                            channel.sendMessage(
+                                    "🕷️ " + giver.getAsMention()
+                                            + " doesn't have enough candy to make a sacrifice!"
+                            ).queue();
+                            return;
+                        }
+
+                        if (result == StealResult.TARGET_HAS_NO_CANDY) {
+                            // The target's inventory should not matter for a failed attempt.
+                            // This branch is defensive; see the database method note below.
+                            channel.sendMessage(
+                                    "🕷️ " + recipient.getAsMention()
+                                            + " has no candy to steal!"
+                            ).queue();
+                            return;
+                        }
+
+                        channel.sendMessage(
+                                "💀 " + giver.getAsMention()
+                                        + " failed to steal from " + recipient.getAsMention()
+                                        + " and lost three candies!"
+                        ).queue();
+                    } else {
+                        channel.sendMessage(
+                                "🍀 " + giver.getAsMention()
+                                        + " failed to steal from " + recipient.getAsMention()
+                                        + ", but escaped without losing any candy!"
+                        ).queue();
+                    }
+
+                    return;
+                }
+
+                StealResult result =
+                        database.tryStealCandy(giver.getId(), recipient.getId(), payPrice);
+
+                switch (result) {
+                    case SUCCESS ->
+                            channel.sendMessage(
+                                    "🕷️ " + giver.getAsMention()
+                                            + " successfully stole a candy from "
+                                            + recipient.getAsMention()
+                                            + "! Three candies were sacrificed for this crime. 🍬"
+                            ).queue();
+
+                    case SUCCESS_FREE ->
+                            channel.sendMessage(
+                                    "🥷 " + giver.getAsMention()
+                                            + " successfully stole a candy from "
+                                            + recipient.getAsMention()
+                                            + " and got away without paying! 🍬"
+                            ).queue();
+
+                    case FAILED_PAID ->
+                            channel.sendMessage(
+                                    "💀 " + giver.getAsMention()
+                                            + " failed to steal from " + recipient.getAsMention()
+                                            + " and lost three candies!"
+                            ).queue();
+
+                    case FAILED_FREE ->
+                            channel.sendMessage(
+                                    "🍀 " + giver.getAsMention()
+                                            + " failed to steal from " + recipient.getAsMention()
+                                            + ", but escaped without losing any candy!"
+                            ).queue();
+
+                    case INSUFFICIENT_CANDY ->
+                            channel.sendMessage(
+                                    "🕷️ " + giver.getAsMention()
+                                            + " doesn't have enough candy to sacrifice!"
+                            ).queue();
+
+                    case TARGET_HAS_NO_CANDY ->
+                            channel.sendMessage(
+                                    "🕷️ " + recipient.getAsMention()
+                                            + " has no candy to steal!"
+                            ).queue();
+                }
+
+            } catch (SQLException exception) {
+                exception.printStackTrace();
+
+                channel.sendMessage(
+                        "😔 The bucket seems to be empty. Better luck next time."
+                ).queue();
+            }
+
             return;
         }
 
+
+        // ─── CANDY COUNT ──────────────────────────────────────
         if (message.toLowerCase().startsWith("!candy ")) {
             var mentionedUsers =
                     event.getMessage().getMentions().getUsers();
@@ -285,13 +433,20 @@ public class TrickOrTreatListener extends ListenerAdapter {
                         + "> bucket and stole their candy!"
         ).queue();
     }
-    private void giveCoal(String giverId, String recipientId, ButtonInteractionEvent event) {
+
+    private void giveCoal(
+            String giverId,
+            String recipientId,
+            ButtonInteractionEvent event) {
+
+        String message = COAL_MESSAGES.get((int) (Math.random() * COAL_MESSAGES.size()));
+
+        message = message.replace("<@RECIPIENT>", "<@" + recipientId + ">");
+
         event.reply(
                 "\uD83E\uDDDF With a malicious grin <@"
-                        + giverId + "> hands <@"
-                        + recipientId + "> a wrapped piece of candy. Upon closer inspection it's a rock in a wrapper. \uD83E\uDEA8"
+                        + giverId + "> " + message
         ).queue();
-
     }
 
     private void sendLeaderboard(MessageReceivedEvent event) {
